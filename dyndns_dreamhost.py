@@ -1,4 +1,4 @@
-#!/usr/bin python3
+#!/usr/bin/env python3
 '''Provides DNS update script for accessing Dreamhost DNS API.
 
 To update IP addresses dynamically, run on crontab.'''
@@ -60,7 +60,7 @@ class Log:
         if self.do_log:
             self.logfile.close()
 
-    def log(msg):
+    def log(self, msg):
         if self.do_log:
             self.logfile.write('{} {}\n'.format(time.asctime(), msg))
 
@@ -163,10 +163,12 @@ def main(args=None):
         help='Name of DNS Record to set/update')
     argparser.add_argument('-l','--log', dest='logfile', default='',
         help='Log file')
-    argparser.add_argument('-c','--clean', action='store_const', const=True,
+    argparser.add_argument('-c','--cache', dest='cachefile', default='',
+        help='File to cache previously set IP address')
+    argparser.add_argument('-r','--remove', action='store_const', const=True,
         default=False, help='Remove DNS record and cache files if exist'
             '(default: set/update IP in record)')
-    argparser.add_argument('-h','--hard', action='store_const', const=True,
+    argparser.add_argument('-f','--force', action='store_const', const=True,
         default=False, help='Force hard overwrite of DNS record'
             '(default: only set/update IP if not the same as current IP)')
     params = argparser.parse_args(args)
@@ -176,27 +178,28 @@ def main(args=None):
     else:
         do_log = False
 
-    with Log(params.logfile, do_log) as logfile:
-        ip_cachename = 'dyndns-{}.txt'.format(params.hostname)
+    if params.cachefile == '':
+        params.cachefile = '.dyndns-' + params.hostname
 
-        if params.clean:
+    with Log(params.logfile, do_log) as logfile:
+        if params.remove:
             dyndns_clean(params.key, params.hostname)
             logfile.log(params.hostname + ': Removed A record(s).')
             try:
-                os.remove(ip_cachename)
+                os.remove(params.cachefile)
                 logfile.log('{}: Removed cache file {}.'.format(params.hostname,
-                    ip_cachename))
+                    params.cachefile))
             except OSError as e:
                 logfile.log('{}: Unable to remove cache file {}. {}.'.format(
-                    params.hostname, ip_cachename, e.strerror))
+                    params.hostname, params.cachefile, e.strerror))
             return 0
 
         try:
-            ip_cache = open(ip_cachename)
+            ip_cache = open(params.cachefile)
         except IOError as e:
             cached_ip = None
             logfile.log('{}: Warning, couldn\'t read IP cache file {}. {}.'.format(
-                params.hostname, ip_cachename, e.strerror))
+                params.hostname, params.cachefile, e.strerror))
         else:
             cached_ip = ip_cache.read().rstrip()
             ip_cache.close()
@@ -208,15 +211,15 @@ def main(args=None):
 
         if (current_ip is not None and
                 (cached_ip is None or cached_ip != current_ip
-                or params.hard)):
+                or params.force)):
             dyndns_clean(params.key, params.hostname)
             logfile.log(params.hostname + ': Removed A record(s).')
 
             dyndns_add(key=params.key, record=params.hostname, type='A',
                 value=current_ip)
-            with open(ip_cachename, 'w') as ip_cache:
+            with open(params.cachefile, 'w') as ip_cache:
                 ip_cache.write(current_ip + '\n')
-            logfile.log('{}: Set A record to {}'.format(params.hostname,
+            logfile.log('{}: Set A record to {}.'.format(params.hostname,
                 current_ip))
     return 0
             
